@@ -1,0 +1,17 @@
+name: Compile the kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compile the kernel
+        uses: ophub/amlogic-s9xxx-armbian@main
+        with:
+          build_target: kernel
+          kernel_version: 6.6.y
+          kernel_auto: true
+          kernel_patch: compile-kernel/tools/patch
+          auto_patch: true
