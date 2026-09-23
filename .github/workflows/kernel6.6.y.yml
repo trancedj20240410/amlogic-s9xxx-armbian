@@ -1,19 +1,114 @@
+#==========================================================================
+# Description: Compile the kernel with MT7663 patch
+#==========================================================================
+
 name: Compile the kernel
 
 on:
   workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "Select kernel version"
+        required: false
+        default: "6.6.y"
+        type: choice
+        options:
+          - 6.6.y
+          - 6.12.y
+          - 6.18.y
+      kernel_toolchain:
+        description: "Select the compilation toolchain"
+        required: false
+        default: "gcc"
+        type: choice
+        options:
+          - gcc
+          - clang
+      ccache_clear:
+        description: "Set whether to clear the cache"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  TZ: Etc/UTC
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    env:
-      DOCKER_DEFAULT_PLATFORM: linux/arm64   # 新增
+    runs-on: ubuntu-26.04-arm          # 关键：ARM64 运行器，避免 Docker 平台不匹配
+    permissions:
+      contents: write
+
+    name: compile-kernel-${{ inputs.kernel_version }}
+
     steps:
-      - name: Compile the kernel
-        uses: trancedj20240410/amlogic-s9xxx-armbian@main
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize the build environment
+        id: init
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install $(curl -fsSL https://ophub.org/ubuntu2604-build-armbian-depends)
+          sudo timedatectl set-timezone "${TZ:-Etc/UTC}"
+          sudo ntpdate ntp.ubuntu.com 0.pool.ntp.org || true
+          date -u
+          echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Create virtual disk for extended storage
+        id: disk
+        run: |
+          root_avail=$(df --block-size=1G / | tail -1 | awk '{print $4}')
+          root_size=$(( root_avail - 4 ))
+          [[ "${root_size}" -gt 0 ]] || { echo "Insufficient space"; exit 1; }
+          sudo truncate -s "${root_size}"G /root.img
+          build_dev=$(sudo losetup --find --show /root.img)
+          sudo mkfs.xfs -f -i sparse=0 -b size=4096 "${build_dev}"
+          sudo mkdir -p /builder
+          sudo mount "${build_dev}" /builder
+          sudo chown -R runner:runner /builder
+          df -Th
+          echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: /builder/ccache
+          key: kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-${{ github.sha }}
+          restore-keys: |
+            kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
+
+      - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
+        uses: trancedj20240410/amlogic-s9xxx-armbian@main   # 用你自己的 Fork
+        if: ${{ steps.disk.outputs.status == 'success' && !cancelled() }}
         with:
           build_target: kernel
-          kernel_version: 6.6.y
+          kernel_source: unifreq
+          kernel_version: ${{ inputs.kernel_version }}
           kernel_auto: true
-          kernel_patch: compile-kernel/tools/patch/linux-6.6.y
-          auto_patch: true
+          delete_source: true
+          kernel_package: all
+          kernel_sign: -ophub
+          kernel_toolchain: ${{ inputs.kernel_toolchain }}
+          ccache_clear: ${{ inputs.ccache_clear }}
+          docker_hostpath: /builder
+          docker_image: ophub/armbian-resolute:arm64
+          kernel_patch: compile-kernel/tools/patch     # 补丁目录
+          auto_patch: true                             # 启用自动补丁
+
+      - name: Upload Kernel to Release
+        uses: ophub/upload-to-releases@main
+        if: ${{ env.PACKAGED_STATUS == 'success' && !cancelled() }}
+        with:
+          tag: kernel_stable
+          artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
+          allow_updates: true
+          remove_artifacts: false
+          replaces_artifacts: true
+          make_latest: false
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            - Custom kernel with MT7663 patch semaphore retry
+            - 包含 MT7663 信号量重试补丁的自编译内核
