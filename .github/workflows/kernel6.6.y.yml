@@ -6,6 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_DEFAULT_PLATFORM: linux/arm64   # 新增
     steps:
       - name: Compile the kernel
         uses: trancedj20240410/amlogic-s9xxx-armbian@main
