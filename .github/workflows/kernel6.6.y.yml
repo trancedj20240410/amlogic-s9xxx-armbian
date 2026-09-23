@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Compile the kernel
-        uses: ophub/amlogic-s9xxx-armbian@main
+        uses: trancedj20240410/amlogic-s9xxx-armbian@main
         with:
           build_target: kernel
           kernel_version: 6.6.y
