@@ -1,1 +1,34 @@
-
+diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
+index d50719810..8c7f4ba60 100644
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
+@@ -1224,7 +1224,7 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+ {
+ 	const struct mt7615_patch_hdr *hdr;
+ 	const struct firmware *fw = NULL;
+-	int len, ret, sem;
++	int len, ret, sem, c = 50;
+ 
+ 	ret = firmware_request_nowarn(&fw, name, dev->mt76.dev);
+ 	if (ret)
+@@ -1235,13 +1235,19 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+ 		ret = -EINVAL;
+ 		goto release_fw;
+ 	}
+-
++retry:
+ 	sem = mt76_connac_mcu_patch_sem_ctrl(&dev->mt76, true);
+ 	switch (sem) {
+ 	case PATCH_IS_DL:
+ 		goto release_fw;
+ 	case PATCH_NOT_DL_SEM_SUCCESS:
+ 		break;
++	case PATCH_NOT_DL_SEM_FAIL:
++        if (is_mt7663(&dev->mt76) && c--) {
++            msleep(100);
++            goto retry;
++        }
++        fallthrough;	
+ 	default:
+ 		dev_err(dev->mt76.dev, "Failed to get patch semaphore\n");
+ 		ret = -EAGAIN;
