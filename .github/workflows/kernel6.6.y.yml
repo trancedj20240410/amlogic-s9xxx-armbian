@@ -81,7 +81,7 @@ jobs:
             kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
 
       - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
-        uses: trancedj20240410/amlogic-s9xxx-armbian@main   # 用你自己的 Fork
+        uses: trancedj20240410/amlogic-s9xxx-armbian@main
         if: ${{ steps.disk.outputs.status == 'success' && !cancelled() }}
         with:
           build_target: kernel
@@ -95,10 +95,9 @@ jobs:
           ccache_clear: ${{ inputs.ccache_clear }}
           docker_hostpath: /builder
           docker_image: ophub/armbian-resolute:arm64
-          extra_args: "-p true"
-          kernel_patch: compile-kernel/tools/patch     # 补丁目录
-          auto_patch: true                             # 启用自动补丁
-          kernel_patching: "true"
+          # 关键修正：移除引发路径冲突的 kernel_patch/extra_args 参数
+          # 使用框架原生参数将补丁功能强制推至底层编译脚本
+          auto_patch: true
 
       - name: Upload Kernel to Release
         uses: ophub/upload-to-releases@main
