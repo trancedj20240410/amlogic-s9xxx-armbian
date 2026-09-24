@@ -80,32 +80,45 @@ jobs:
           restore-keys: |
             kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
 
-      # ================== 终极地毯式暴力注入开始 ==================
+            # ================== 终极地毯式暴力注入（V2 防自锁版） ==================
       - name: Force inject MT7663 combination patch into framework
         run: |
           echo "Executing deep filesystem sweep to force patch replacement..."
           
-          # 检查我们仓库自带的 patch 是否完好
+          # 1. 锁定我们仓库自带的真实本地 patch 路径
           LOCAL_PATCH="compile-kernel/tools/patch/linux-${{ inputs.kernel_version }}/mt7663-semaphore-retry.patch"
           if [ ! -f "$LOCAL_PATCH" ]; then
-              # 兼容没有 linux- 前缀的旧路径名
               LOCAL_PATCH="compile-kernel/tools/patch/${{ inputs.kernel_version }}/mt7663-semaphore-retry.patch"
           fi
           
-          echo "Target local patch path verified: $LOCAL_PATCH"
-          cat "$LOCAL_PATCH" | grep -E "timeout|msleep"
+          # 获取本地 patch 的绝对路径，用于后面的防自撞判定
+          ABS_LOCAL_PATCH=$(readlink -f "$LOCAL_PATCH")
+          echo "Target local patch absolute path verified: $ABS_LOCAL_PATCH"
           
-          # 地毯式搜寻当前运行器上所有名为 linux-6.6.y 或 包含 mt7663 补丁的框架内置目录
-          # 不管它是被下载在 _actions 还是隐藏在编译器的 docker 主机目录中，全部重写覆盖！
+          # 2. 地毯式搜寻当前运行器上所有潜在的框架内置补丁目录
+          # 增加最高级别的错误隔离，确保遇到任何权限问题或无目录情况绝不中断流水线
           TARGET_DIRS=$(find /home/runner/work/ -type d -path "*/tools/patch/*" 2>/dev/null || true)
           
           for dir in $TARGET_DIRS; do
               if [[ "$dir" == *"${{ inputs.kernel_version }}"* ]]; then
-                  echo "Found framework target patch directory: $dir"
-                  cp -f "$LOCAL_PATCH" "$dir/mt7663-semaphore-retry.patch"
-                  echo "Successfully forced overwritten: $dir/mt7663-semaphore-retry.patch"
+                  TARGET_FILE="$dir/mt7663-semaphore-retry.patch"
+                  ABS_TARGET_FILE=$(readlink -f "$TARGET_FILE" 2>/dev/null || echo "$TARGET_FILE")
+                  
+                  # 核心防死锁判定：如果发现目标路径和本地补丁路径完全一致，直接跳过，防止 identical file 报错
+                  if [ "$ABS_LOCAL_PATCH" = "$ABS_TARGET_FILE" ]; then
+                      echo "Skipping self-source alignment check for workspace path: $dir"
+                      continue
+                  fi
+                  
+                  # 强制执行异地侵入式覆盖
+                  echo "Found external framework patch directory: $dir"
+                  mkdir -p "$dir"
+                  cp -f "$LOCAL_PATCH" "$TARGET_FILE"
+                  echo "Successfully forced overwritten: $TARGET_FILE"
               fi
           done
+          
+          echo "Filesystem sweep operation successfully bypassed identical barriers."
       # ================== 终极地毯式暴力注入结束 ==================
 
       - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
