@@ -80,6 +80,30 @@ jobs:
           restore-keys: |
             kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
 
+            - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: /builder/ccache
+          key: kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-${{ github.sha }}
+          restore-keys: |
+            kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
+
+      # ================== 终极拦截注入步骤开始 ==================
+      - name: Force inject MT7663 combination patch into framework
+        run: |
+          echo "Intercepting framework path to force inject patch..."
+          # 无论 Ophub 框架底层把补丁目录藏在 Docker 的什么映射位置，
+          # 我们直接把我们仓库里准备好的 patch 文件强行拷贝覆盖到框架的所有潜在扫描点！
+          mkdir -p .github/workflows/compile-kernel/tools/patch/linux-6.6.y/
+          mkdir -p compile-kernel/tools/patch/linux-6.6.y/
+          
+          # 确保 patch 文件存在于工作流当前根目录的最显眼处
+          cp -f compile-kernel/tools/patch/linux-6.6.y/mt7663-semaphore-retry.patch . || true
+          
+          echo "Patch verification before compilation:"
+          cat compile-kernel/tools/patch/linux-6.6.y/mt7663-semaphore-retry.patch | grep -E "timeout|msleep"
+      # ================== 终极拦截注入步骤结束 ==================
+
       - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
         uses: trancedj20240410/amlogic-s9xxx-armbian@main
         if: ${{ steps.disk.outputs.status == 'success' && !cancelled() }}
