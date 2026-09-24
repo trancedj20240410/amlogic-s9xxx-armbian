@@ -2,23 +2,27 @@ diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c b/drivers/net/wirel
 index d50719810..8c7f4ba60 100644
 --- a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
 +++ b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
-@@ -1224,8 +1224,14 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+@@ -1224,8 +1224,20 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  {
  	const struct mt7615_patch_hdr *hdr;
  	const struct firmware *fw = NULL;
 -	int len, ret, sem;
 +	int len, ret, sem, c = 50;
  
-+	/* 针对 Amlogic 平台冷启动时 MT7663 固件加载过快引发死锁的硬延迟 */
++	/* 针对 Amlogic 平台冷启动时 MT7663 引发死锁的硬延迟与主动总线复位 */
 +	if (is_mt7663(&dev->mt76)) {
-+		dev_info(dev->mt76.dev, "Applying MT7663 boot delay for Amlogic SDIO stability...\n");
++		dev_info(dev->mt76.dev, "Applying MT7663 boot delay and heavy bus reset...\n");
 +		msleep(800);
++		/* 强制清理可能残留在芯片缓存中的控制信令 */
++		mt76_connac_mcu_patch_sem_ctrl(&dev->mt76, false);
++		/* 修改超时判定为更激进的短超时，不让它死等20秒 */
++		dev->mt76.mcu.timeout = 2 * HZ;
 +	}
 +
  	ret = firmware_request_nowarn(&fw, name, dev->mt76.dev);
  	if (ret)
  		return ret;
-@@ -1235,13 +1241,19 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+@@ -1235,13 +1247,21 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  		ret = -EINVAL;
  		goto release_fw;
  	}
@@ -32,7 +36,9 @@ index d50719810..8c7f4ba60 100644
  		break;
 +	case PATCH_NOT_DL_SEM_FAIL:
 +		if (is_mt7663(&dev->mt76) && c--) {
-+			msleep(100);
++			/* 抢不到信号量时，主动释放一次，并强制芯片内部MCU复位等待 */
++			mt76_connac_mcu_patch_sem_ctrl(&dev->mt76, false);
++			msleep(150);
 +			goto retry;
 +		}
 +		fallthrough;
