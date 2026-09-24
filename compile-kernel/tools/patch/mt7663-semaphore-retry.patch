@@ -1,26 +1,21 @@
-diff --git a/drivers/net/wireless/mediatek/mt76/sdio.c b/drivers/net/wireless/mediatek/mt76/sdio.c
-index 213d2a0ab..60dbe4c2b 100644
---- a/drivers/net/wireless/mediatek/mt76/sdio.c
-+++ b/drivers/net/wireless/mediatek/mt76/sdio.c
-@@ -226,6 +226,12 @@ int mt76_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id,
- 	struct mt76_dev *dev;
- 	int ret;
- 
-+	/* 终极调优：强行对 A311D 控制器下挂的 MT7663 芯片关闭 Scatter-Gather 并限制 host 能力，防止非对齐死锁 */
-+	if (func->device == 0x7663) {
-+		dev_info(&func->dev, "Disabling mt7663s SG DMA mode for Amlogic SDIO alignment stability...\n");
-+		func->card->host->caps &= ~(MMC_CAP_NONREMOVABLE | MMC_CAP_SDIO_IRQ);
-+	}
-+
- 	dev = mt76_alloc_device(&func->dev, sizeof(*dev), &mt76_sdio_ops, drv);
- 	if (!dev)
- 		return -ENOMEM;
-
 diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
 index d50719810..8c7f4ba60 100644
 --- a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
 +++ b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
-@@ -1224,8 +1224,20 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+@@ -103,7 +103,11 @@ void mt7615_mcu_fill_msg(struct mt7615_dev *dev, struct sk_buff *skb,
+ 	u32 val;
+ 
+ 	/* TODO: make dynamic based on msg type */
+-	dev->mt76.mcu.timeout = 20 * HZ;
++	if (is_mt7663(&dev->mt76)) {
++		dev->mt76.mcu.timeout = 1 * HZ;
++	} else {
++		dev->mt76.mcu.timeout = 20 * HZ;
++	}
+ 
+ 	seq = ++dev->mt76.mcu.msg_seq & 0xf;
+ 	if (!seq)
+@@ -1224,8 +1228,20 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  {
  	const struct mt7615_patch_hdr *hdr;
  	const struct firmware *fw = NULL;
@@ -40,7 +35,7 @@ index d50719810..8c7f4ba60 100644
  	ret = firmware_request_nowarn(&fw, name, dev->mt76.dev);
  	if (ret)
  		return ret;
-@@ -1235,13 +1247,21 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+@@ -1235,13 +1249,21 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  		ret = -EINVAL;
  		goto release_fw;
  	}
