@@ -2,16 +2,23 @@ diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c b/drivers/net/wirel
 index d50719810..8c7f4ba60 100644
 --- a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
 +++ b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
-@@ -1224,7 +1224,7 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+@@ -1224,8 +1224,14 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  {
  	const struct mt7615_patch_hdr *hdr;
  	const struct firmware *fw = NULL;
 -	int len, ret, sem;
 +	int len, ret, sem, c = 50;
  
++	/* 针对 Amlogic 平台冷启动时 MT7663 固件加载过快引发死锁的硬延迟 */
++	if (is_mt7663(&dev->mt76)) {
++		dev_info(dev->mt76.dev, "Applying MT7663 boot delay for Amlogic SDIO stability...\n");
++		msleep(800);
++	}
++
  	ret = firmware_request_nowarn(&fw, name, dev->mt76.dev);
  	if (ret)
-@@ -1235,13 +1235,19 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
+ 		return ret;
+@@ -1235,13 +1241,19 @@ static int mt7615_load_patch(struct mt7615_dev *dev, u32 addr, const char *name)
  		ret = -EINVAL;
  		goto release_fw;
  	}
@@ -24,11 +31,11 @@ index d50719810..8c7f4ba60 100644
  	case PATCH_NOT_DL_SEM_SUCCESS:
  		break;
 +	case PATCH_NOT_DL_SEM_FAIL:
-+        if (is_mt7663(&dev->mt76) && c--) {
-+            msleep(100);
-+            goto retry;
-+        }
-+        fallthrough;	
++		if (is_mt7663(&dev->mt76) && c--) {
++			msleep(100);
++			goto retry;
++		}
++		fallthrough;
  	default:
  		dev_err(dev->mt76.dev, "Failed to get patch semaphore\n");
  		ret = -EAGAIN;
