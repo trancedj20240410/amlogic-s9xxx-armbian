@@ -80,29 +80,33 @@ jobs:
           restore-keys: |
             kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
 
-      - name: Cache ccache
-        uses: actions/cache@v5
-        with:
-          path: /builder/ccache
-          key: kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-${{ github.sha }}
-          restore-keys: |
-            kernel-${{ inputs.kernel_toolchain }}-${{ inputs.kernel_version }}-
-
-      # ================== 终极拦截注入步骤开始 ==================
+      # ================== 终极地毯式暴力注入开始 ==================
       - name: Force inject MT7663 combination patch into framework
         run: |
-          echo "Intercepting framework path to force inject patch..."
-          # 无论 Ophub 框架底层把补丁目录藏在 Docker 的什么映射位置，
-          # 我们直接把我们仓库里准备好的 patch 文件强行拷贝覆盖到框架的所有潜在扫描点！
-          mkdir -p .github/workflows/compile-kernel/tools/patch/linux-6.6.y/
-          mkdir -p compile-kernel/tools/patch/linux-6.6.y/
+          echo "Executing deep filesystem sweep to force patch replacement..."
           
-          # 确保 patch 文件存在于工作流当前根目录的最显眼处
-          cp -f compile-kernel/tools/patch/linux-6.6.y/mt7663-semaphore-retry.patch . || true
+          # 检查我们仓库自带的 patch 是否完好
+          LOCAL_PATCH="compile-kernel/tools/patch/linux-${{ inputs.kernel_version }}/mt7663-semaphore-retry.patch"
+          if [ ! -f "$LOCAL_PATCH" ]; then
+              # 兼容没有 linux- 前缀的旧路径名
+              LOCAL_PATCH="compile-kernel/tools/patch/${{ inputs.kernel_version }}/mt7663-semaphore-retry.patch"
+          fi
           
-          echo "Patch verification before compilation:"
-          cat compile-kernel/tools/patch/linux-6.6.y/mt7663-semaphore-retry.patch | grep -E "timeout|msleep"
-      # ================== 终极拦截注入步骤结束 ==================
+          echo "Target local patch path verified: $LOCAL_PATCH"
+          cat "$LOCAL_PATCH" | grep -E "timeout|msleep"
+          
+          # 地毯式搜寻当前运行器上所有名为 linux-6.6.y 或 包含 mt7663 补丁的框架内置目录
+          # 不管它是被下载在 _actions 还是隐藏在编译器的 docker 主机目录中，全部重写覆盖！
+          TARGET_DIRS=$(find /home/runner/work/ -type d -path "*/tools/patch/*" 2>/dev/null || true)
+          
+          for dir in $TARGET_DIRS; do
+              if [[ "$dir" == *"${{ inputs.kernel_version }}"* ]]; then
+                  echo "Found framework target patch directory: $dir"
+                  cp -f "$LOCAL_PATCH" "$dir/mt7663-semaphore-retry.patch"
+                  echo "Successfully forced overwritten: $dir/mt7663-semaphore-retry.patch"
+              fi
+          done
+      # ================== 终极地毯式暴力注入结束 ==================
 
       - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
         uses: trancedj20240410/amlogic-s9xxx-armbian@main
@@ -119,8 +123,6 @@ jobs:
           ccache_clear: ${{ inputs.ccache_clear }}
           docker_hostpath: /builder
           docker_image: ophub/armbian-resolute:arm64
-          # 关键修正：移除引发路径冲突的 kernel_patch/extra_args 参数
-          # 使用框架原生参数将补丁功能强制推至底层编译脚本
           auto_patch: true
 
       - name: Upload Kernel to Release
